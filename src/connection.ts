@@ -6,8 +6,9 @@ import { buildAuth } from "./packets/builders/auth.ts";
 import { buildQuery } from "./packets/builders/query.ts";
 import { ReceivePacket, SendPacket } from "./packets/packet.ts";
 import { parseError } from "./packets/parsers/err.ts";
-import { parseHandshake } from "./packets/parsers/handshake.ts";
+import { parseHandshake, HandshakeBody } from "./packets/parsers/handshake.ts";
 import { FieldInfo, parseField, parseRow } from "./packets/parsers/result.ts";
+import { parseCachingSha2Response } from "./packets/parsers/cachingsha2response.ts";
 
 /**
  * Connection state
@@ -50,17 +51,16 @@ export class Connection {
 
     let receive = await this.nextPacket();
     const handshakePacket = parseHandshake(receive.body);
+
     const data = buildAuth(handshakePacket, {
       username: this.client.config.username ?? "",
       password: this.client.config.password,
       db: this.client.config.db,
     });
-    await new SendPacket(data, 0x1).send(this.conn);
+    receive = await this.authConnect(handshakePacket);
     this.state = ConnectionState.CONNECTING;
     this.serverVersion = handshakePacket.serverVersion;
     this.capabilities = handshakePacket.serverCapabilities;
-
-    receive = await this.nextPacket();
     const header = receive.body.readUint8();
     if (header === 0xff) {
       const error = parseError(receive.body, this);
@@ -80,6 +80,36 @@ export class Connection {
   /** Connect to database */
   async connect(): Promise<void> {
     await this._connect();
+  }
+
+  async authConnect(handshakePacket: HandshakeBody): Promise<ReceivePacket> {
+    var packdata = buildAuth(handshakePacket, {
+      username: this.client.config.username ?? "",
+      password: this.client.config.password,
+      db: this.client.config.db,
+    });
+    let receive: ReceivePacket;
+    switch (handshakePacket.authPluginName) {
+      case "mysql_native_password":
+        await new SendPacket(packdata, 0x1).send(this.conn!);
+        receive = await this.nextPacket();
+        break;
+      case "caching_sha2_password":
+        await new SendPacket(packdata, 0x1).send(this.conn!);
+        receive = await this.nextPacket();
+        //todo / OK payload can be sent immediately (e.g., if password is empty( (short-circuiting the )
+        let cacheRespone = parseCachingSha2Response(receive.body);
+        if (cacheRespone.succeeded) {
+          receive = await this.nextPacket();
+          return receive;
+        }
+        //todo goto "sha256_password"
+
+        break;
+      case "sha256_password":
+        break;
+    }
+    return receive!;
   }
 
   private async nextPacket(): Promise<ReceivePacket> {

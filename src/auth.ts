@@ -36,8 +36,8 @@ export default function auth(
       return mysqlNativePassword(password, seed);
 
     case "caching_sha2_password":
-    // TODO
-    // return cachingSha2Password(password, seed);
+      // TODO
+      return cachingSha2Password(password, seed);
     default:
       throw new Error("Not supported");
   }

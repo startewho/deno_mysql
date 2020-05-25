@@ -9,6 +9,10 @@ export class BufferReader {
     return this.pos >= this.buffer.length;
   }
 
+  get length(): number {
+    return this.buffer.length;
+  }
+
   skip(len: number): BufferReader {
     this.pos += len;
     return this;
@@ -78,6 +82,13 @@ export class BufferReader {
     const len = this.readEncodedLen();
     if (len == -1) return null;
     return this.readString(len);
+  }
+
+  readToEnd(): Uint8Array {
+    if (this.pos <= this.buffer.length) {
+      return this.buffer.slice(this.pos);
+    }
+    return new Uint8Array();
   }
 }
 
